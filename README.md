@@ -33,10 +33,22 @@ python scripts/init_vault.py
 
 在 Claude Code 中：
 
-- 输入 `导入一份面经` → 启动 **ingest** 流程
-- 输入 `开始学习` → 启动 **learn** 流程
-- 输入 `复习` → 启动 **review** 流程
-- 输入 `看看进度` → 启动 **dashboard** 面板
+| 你想做什么 | 说什么 | 模式 |
+|-----------|--------|------|
+| 导入材料 | `导入一份面经` / `导入 PDF` | **ingest** |
+| 学习新概念 | `开始学习` | **learn** |
+| 快速复习 | `复习` / `来几题` | **review** → FAST |
+| 深度复习 | `深度复习` / `详细点评` | **review** → DEEP |
+| 模拟面试 | `模拟面试` / `面试模式` | **review** → INTERVIEW |
+| 查看进度 | `看看进度` / `统计` | **dashboard** |
+
+### 复习模式对比
+
+| 模式 | 追问 | 评分方式 | 适用场景 |
+|------|------|---------|---------|
+| **FAST** | 0 轮 | 1-5 分 + 简短补充 | 快速过题 |
+| **DEEP** | ≤1 轮 | 1-5 分 + "你说对了/需补充/完整答案" | 查漏补缺 |
+| **INTERVIEW** | ≤3 轮 | 四维度 0-10 分 + 综合评分 + 学习建议 | 实战演练 |
 
 ## 目录结构
 
@@ -70,11 +82,21 @@ InterviewVault/
 ## P0 开发进度
 
 - [x] Vault 目录结构 + 文件格式规范
-- [x] ingest Skill 基础版
+- [x] ingest Skill 基础版（Markdown + 粘贴文本）
 - [x] learn Skill 基础版
-- [x] review Skill 基础版 (FAST 模式)
-- [x] dashboard Skill 基础版
+- [x] review Skill 基础版（FAST 模式）
+- [x] dashboard Skill 基础版（文本面板）
 - [x] 数据一致性验证脚本
+
+## P1 开发进度
+
+- [x] review DEEP 模式（详细点评 + 单轮追问）
+- [x] review INTERVIEW 模式（面试场景 + 多轮追问 + 四维度评分）
+- [x] ingest PDF 支持（pdftotext 集成）
+- [x] ingest Word 支持（python-docx 集成）
+- [x] 错误笔记系统（自动记录到笔记 + Exam-Traps）
+- [x] Dataview 面板增强（9 个动态查询区块）
+- [x] mastered 自动判定（consecutive_correct ≥ 5 + ease_factor ≥ 2.5）
 
 ## 技术栈
 
