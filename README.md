@@ -10,6 +10,7 @@
 | **learn** | 学习、learn | 推荐新概念，自评后初始化 SM-2 调度 |
 | **review** | 复习、review | 间隔重复复习（FAST / DEEP / INTERVIEW）|
 | **dashboard** | 面板、进度 | 统计面板、薄弱分析、管理操作 |
+| **mcp_server** | MCP Client 调用 | 将 Vault 查询、薄弱分析、学习计划暴露为本地 stdio 工具 |
 
 ## 快速开始
 
@@ -41,6 +42,7 @@ python scripts/init_vault.py
 | 深度复习 | `深度复习` / `详细点评` | **review** → DEEP |
 | 模拟面试 | `模拟面试` / `面试模式` | **review** → INTERVIEW |
 | 查看进度 | `看看进度` / `统计` | **dashboard** |
+| 外部工具查询 Vault | 启动 `python mcp_server/server.py --vault InterviewVault` | **MCP Server** |
 
 ### 复习模式对比
 
@@ -106,10 +108,20 @@ InterviewVault/
 - [x] 配置验证系统（schema 校验 + 默认值填充）
 - [x] 冒烟测试（35 项） + e2e 测试（21 项）
 
+## P3 开发进度
+
+- [x] Python stdio MCP Server（`tools/list`, `tools/call`, `resources/list`, `resources/read`）
+- [x] MCP Tools：`query_knowledge`, `list_weak_areas`, `get_due_reviews`, `get_learning_plan`, `record_review_result`
+- [x] MCP Resources：`vault://stats`, `vault://schedule`, `vault://notes/{note_id}`, `vault://questions/{question_id}`
+- [x] Agent Assist 学习计划（只读 dry-run）
+- [x] 确认后写入复习结果 + `agent_actions.jsonl` 审计日志
+- [x] P3 smoke / contract / confirmed-write e2e 测试
+
 ## 技术栈
 
 - **Obsidian** — Markdown 文件管理、双向链接、图谱视图
 - **Claude Code Skills** — 用户交互层
+- **MCP Server** — 本地 stdio 生态接入（P3）
 - **Python 脚本** — 算法与数据处理（SM-2、去重、统计等）
 - **YAML/JSON** — 配置与调度数据
 

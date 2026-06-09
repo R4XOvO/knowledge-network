@@ -74,6 +74,19 @@ CONFIG_SCHEMA = {
                            "choices": ["concept", "sub_topic"]}
         }
     },
+    "agent": {
+        "type": dict,
+        "required": False,
+        "children": {
+            "enabled": {"type": bool, "required": False, "default": False},
+            "mode": {"type": str, "required": False, "default": "agent-assist",
+                     "choices": ["manual", "agent-assist", "agent-auto"]},
+            "require_confirmation": {"type": bool, "required": False, "default": True},
+            "daily_brief": {"type": bool, "required": False, "default": True},
+            "max_auto_actions_per_day": {"type": int, "required": False, "default": 0,
+                                         "min": 0, "max": 20}
+        }
+    },
     "paths": {
         "type": dict,
         "required": False,

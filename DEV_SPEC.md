@@ -1,8 +1,8 @@
 <!-- Dev specification for Interview Knowledge System. -->
 # Developer Specification (DEV_SPEC)
 
-> 版本：0.2 — 开发规范文档
-> 最后更新：2026-06-05
+> 版本：0.3 — 开发规范文档
+> 最后更新：2026-06-09
 
 ## 目录
 
@@ -522,13 +522,13 @@ def validate_consistency(vault_path: str) -> List[str]:
 
 ### 6.4 Phase 4: 生态扩展 (P3)
 
-**目标**：Agent 化与外部集成。
+**目标**：在不改变 P0-P2 基础闭环的前提下，增加可选的 MCP 生态接入与 Agent Assist 编排能力。
 
 | 周次 | 任务 | 交付物 |
 |------|------|--------|
-| W9 | MCP Server 适配 | 知识查询工具暴露给 MCP Client |
-| W10 | Agent 模式 | 自主推荐学习内容、自动调度复习 |
-| W11+ | 多人协作 (Future) | 共享题库、协作标注 |
+| W9 | Python stdio MCP Server | 将 Vault 查询、薄弱分析、待复习列表暴露为 MCP Tools/Resources |
+| W10 | Agent Assist 模式 | 每日学习计划、面试冲刺计划、维护建议；写入前必须用户确认 |
+| W11+ | 多人协作 (Future) | 共享题库、协作标注、权限边界设计 |
 
 ---
 
@@ -536,14 +536,54 @@ def validate_consistency(vault_path: str) -> List[str]:
 
 ### 7.1 Agent 化与 MCP 集成
 
-**目标**：将系统从被动响应的 Skill 升级为自主学习的 Agent。
+**目标**：将系统从“用户触发单个 Skill”增强为“Agent 主动规划 + Skill 具体执行 + Vault 统一存储”的可选生态模式。
 
-- **自主推荐**：Agent 根据用户的学习习惯和薄弱点，主动推荐今日学习内容
-- **MCP Server**：将 Vault 查询能力封装为 MCP Tool，供其他 AI 助手调用
-  - `query_knowledge(concept)`：查询某个概念的知识
-  - `list_weak_areas()`：获取薄弱概念列表
-  - `get_due_reviews()`：获取今日待复习列表
-- **跨平台接入**：通过 MCP 协议，用户可以在 VS Code Copilot、Claude Desktop 等环境中查询自己的知识库
+P3 不替代现有 `ingest` / `learn` / `review` / `dashboard` Skill，而是在其上增加一层可选编排：
+
+```text
+外部 MCP Client / Agent
+        ↓
+MCP Server（只暴露受控工具与资源）
+        ↓
+Agent Assist（规划/编排层，可选）
+        ↓
+Skills（具体执行层）
+        ↓
+InterviewVault（唯一数据源）
+```
+
+**三层职责边界**：
+
+| 层级 | 职责 | 不做什么 |
+|------|------|---------|
+| Agent | 读取 Vault 状态，生成每日计划、冲刺计划、维护建议，选择下一步应使用哪个 Skill | 不重写 ingest/learn/review/dashboard 的完整流程 |
+| Skill | 执行具体交互：导入、学习、复习、面板管理 | 不跨模块直接调用其他 Skill |
+| Vault | Markdown/JSON 文件存储，是所有模块共享的唯一事实源 | 不依赖外部数据库 |
+
+**MCP Server**：
+- 第一版采用 **Python + stdio**，面向本地 Codex / Claude Desktop / VS Code 等客户端。
+- 只访问 CWD 内的 `InterviewVault/`，禁止读取 CWD 外文件。
+- 默认暴露只读工具；写工具必须显式确认。
+- 详细接口见 [8.5 生态扩展模块 (MCP + Agent)](#85-生态扩展模块-mcp--agent)。
+
+**Agent Assist 模式**：
+- 是可选模式，不是第五个 Skill。
+- 默认只生成建议，不自动修改 Vault。
+- 所有写操作（如更新 `schedule.json`、生成报告、记录复习结果）必须用户确认。
+- 写操作必须记录审计日志：`InterviewVault/.progress/agent_actions.jsonl`。
+
+**配置示例**：
+
+```yaml
+agent:
+  enabled: false
+  mode: "agent-assist"   # manual | agent-assist | agent-auto
+  require_confirmation: true
+  daily_brief: true
+  max_auto_actions_per_day: 0
+```
+
+P3 第一版只实现 `agent-assist`。`agent-auto` 作为未来高级模式保留，不进入默认实现范围。
 
 ### 7.2 知识图谱可视化
 
@@ -1436,6 +1476,423 @@ def recalculate_stats(vault_path: str) -> dict:
         "weak_concepts": weak_concepts[:config.show_weak_top_n]
     }
 ```
+
+---
+
+### 8.5 生态扩展模块 (MCP + Agent)
+
+> **实现优先级**：P3
+> **目标**：在不改变四个核心 Skill 职责的前提下，将 Vault 查询能力暴露给 MCP Client，并提供可选的 Agent Assist 编排模式。
+
+#### 8.5.1 设计边界
+
+P3 是生态扩展，不是基础闭环的必需条件。用户即使完全不开启 P3，也应能继续使用 P0-P2 的全部能力。
+
+**核心原则**：
+
+1. **Vault 仍是唯一事实源**：MCP Server、Agent、Skill 都只通过 `InterviewVault/` 下的 Markdown/JSON 文件交换数据。
+2. **Agent 不替代 Skill**：导入由 `ingest` 负责，学习由 `learn` 负责，复习由 `review` 负责，统计与管理由 `dashboard` 负责。
+3. **默认只读，确认后写入**：查询、分析、计划生成可以自动执行；任何修改 Vault 的动作必须用户确认。
+4. **本地优先**：P3 第一版采用 Python + stdio MCP Server，仅服务本机客户端。
+5. **可审计**：所有 Agent 写操作追加记录到 `InterviewVault/.progress/agent_actions.jsonl`。
+
+#### 8.5.2 推荐目录结构
+
+```text
+mcp_server/
+├── server.py              # MCP Server 入口，stdio transport
+├── tools.py               # MCP Tools 注册与参数 schema
+├── resources.py           # MCP Resources 注册
+├── vault_reader.py        # 只读 Vault 查询封装
+├── vault_writer.py        # 确认后写入与审计日志
+├── planner.py             # Agent Assist 计划生成
+└── tests/
+    ├── smoke_test.py      # MCP 启动与工具列表测试
+    ├── contract_test.py   # Tool schema 与错误输出测试
+    └── e2e_test.py        # Agent confirmed-write 流程测试
+```
+
+**与现有目录关系**：
+
+- `.claude/skills/` 仍是 canonical Skill 目录。
+- `scripts/` 继续存放跨模块通用脚本，如配置验证、一致性验证、原子写入。
+- `mcp_server/` 不直接复制 Skill 流程，只封装 Vault 查询、计划生成和受控写入。
+
+#### 8.5.3 MCP Server 规格
+
+**技术选型**：
+
+| 项 | 选择 |
+|----|------|
+| 语言 | Python |
+| Transport | stdio |
+| 数据范围 | `{CWD}/InterviewVault/` |
+| 默认权限 | read-only |
+| 写入策略 | 必须 `confirmed=true`，并写入审计日志 |
+
+**启动方式**：
+
+```bash
+python mcp_server/server.py --vault InterviewVault
+```
+
+**CWD 安全边界**：
+
+1. MCP Server 启动时解析 `vault_path.resolve()`。
+2. 若 `vault_path` 不在 CWD 内，拒绝启动。
+3. 所有工具参数中的路径、ID、URI 都必须解析到 `InterviewVault/` 内。
+4. 禁止暴露任意文件读取工具。
+
+#### 8.5.4 MCP Tools
+
+##### Tool: `query_knowledge`
+
+查询某个概念的笔记、相关 Q&A 和面试陷阱。
+
+**Input Schema**：
+
+```json
+{
+  "concept": "string, required, 概念名或 note_id",
+  "domain": "string, optional, 领域过滤，如 Java/OS/Network",
+  "include_questions": "boolean, optional, default=true",
+  "include_traps": "boolean, optional, default=true"
+}
+```
+
+**Output**：
+
+```json
+{
+  "note": {
+    "note_id": "java-jvm-gc",
+    "concept": "JVM 垃圾回收机制",
+    "domain": "Java",
+    "frequency": "必问",
+    "status": "learning",
+    "file_path": "01-Notes/High-Frequency/Java/JVM-GC.md",
+    "summary": "..."
+  },
+  "questions": [
+    {
+      "question_id": "java-jvm-gc-q01",
+      "question": "如何判断对象可以被回收？",
+      "file_path": "02-Questions/High-Frequency/Java-JVM-GC.md"
+    }
+  ],
+  "traps": [
+    {
+      "title": "引用计数 vs 可达性分析",
+      "file_path": "03-Exam-Traps/Java.md"
+    }
+  ]
+}
+```
+
+**错误处理**：
+
+| 场景 | 返回 |
+|------|------|
+| 找不到概念 | `not_found`，并返回相近概念候选 |
+| domain 不匹配 | `domain_mismatch`，提示实际 domain |
+| 文件损坏 | `parse_error`，返回损坏文件路径 |
+
+##### Tool: `list_weak_areas`
+
+列出当前薄弱概念，供外部客户端或 Agent 制定学习计划。
+
+**Input Schema**：
+
+```json
+{
+  "limit": "integer, optional, default=5, min=1, max=20",
+  "domain": "string, optional",
+  "min_attempts": "integer, optional, default=1"
+}
+```
+
+**Output**：
+
+```json
+{
+  "weak_areas": [
+    {
+      "note_id": "java-jvm-gc",
+      "concept": "JVM 垃圾回收机制",
+      "domain": "Java",
+      "correct_rate": 0.33,
+      "attempts": 6,
+      "priority": "high",
+      "recommended_action": "DEEP review"
+    }
+  ]
+}
+```
+
+##### Tool: `get_due_reviews`
+
+获取指定日期到期的复习题。
+
+**Input Schema**：
+
+```json
+{
+  "date": "string, optional, YYYY-MM-DD, default=today",
+  "limit": "integer, optional, default=10, min=1, max=50",
+  "include_mastered": "boolean, optional, default=false"
+}
+```
+
+**Output**：
+
+```json
+{
+  "date": "2026-06-09",
+  "total_due": 5,
+  "items": [
+    {
+      "question_id": "java-jvm-gc-q01",
+      "note_id": "java-jvm-gc",
+      "concept": "JVM 垃圾回收机制",
+      "domain": "Java",
+      "frequency": "必问",
+      "next_review": "2026-06-09",
+      "status": "learning"
+    }
+  ]
+}
+```
+
+##### Tool: `get_learning_plan`
+
+生成只读学习计划，不直接写入 Vault。
+
+**Input Schema**：
+
+```json
+{
+  "days": "integer, optional, default=1, min=1, max=14",
+  "focus_domain": "string, optional",
+  "intensity": "string, optional, enum=light|normal|intensive, default=normal"
+}
+```
+
+**Output**：
+
+```json
+{
+  "mode": "agent-assist",
+  "days": 1,
+  "plan": [
+    {
+      "date": "2026-06-09",
+      "blocks": [
+        {
+          "type": "review",
+          "mode": "DEEP",
+          "count": 5,
+          "reason": "今日到期且正确率低"
+        },
+        {
+          "type": "learn",
+          "concept": "CAS 原理",
+          "reason": "Java 高频薄弱依赖概念"
+        }
+      ]
+    }
+  ],
+  "writes_required": false
+}
+```
+
+##### Tool: `record_review_result`
+
+记录外部客户端完成的一次复习结果。该工具是写工具，必须确认。
+
+**Input Schema**：
+
+```json
+{
+  "question_id": "string, required",
+  "score": "integer, required, min=1, max=5",
+  "mode": "string, required, enum=FAST|DEEP|INTERVIEW",
+  "confirmed": "boolean, required"
+}
+```
+
+**行为**：
+
+1. 若 `confirmed=false`，返回 dry-run 结果，不写文件。
+2. 若 `confirmed=true`：
+   - 调用 SM-2 更新逻辑。
+   - 原子写入 `.progress/schedule.json`。
+   - 重新计算 `.progress/stats.json`。
+   - 追加审计日志到 `.progress/agent_actions.jsonl`。
+3. 写入后必须运行 `validate_consistency.py`。
+
+**Output**：
+
+```json
+{
+  "written": true,
+  "question_id": "java-jvm-gc-q01",
+  "before": {
+    "interval": 3,
+    "status": "learning"
+  },
+  "after": {
+    "interval": 7,
+    "status": "learning",
+    "next_review": "2026-06-16"
+  },
+  "audit_id": "2026-06-09T10:00:00-java-jvm-gc-q01"
+}
+```
+
+#### 8.5.5 MCP Resources
+
+MCP Resources 只读暴露 Vault 当前状态：
+
+| Resource URI | 内容 | 来源 |
+|--------------|------|------|
+| `vault://stats` | 当前统计摘要 | `.progress/stats.json` |
+| `vault://schedule` | 当前复习调度 | `.progress/schedule.json` |
+| `vault://notes/{note_id}` | 指定概念笔记 | `01-Notes/**/*.md` |
+| `vault://questions/{question_id}` | 指定问题及参考答案 | `02-Questions/**/*.md` |
+
+**Resource 约束**：
+
+- 返回内容应包含 `source_path`，但路径必须是相对 `InterviewVault/` 的路径。
+- 不返回 CWD 外绝对路径。
+- 对大文件做摘要截断，默认正文最大 8,000 字符。
+
+#### 8.5.6 Agent Assist 模式
+
+Agent Assist 是可选的规划/编排层，不是第五个 Skill。
+
+**模式枚举**：
+
+| 模式 | 行为 | P3 状态 |
+|------|------|---------|
+| `manual` | 完全由用户触发 Skill | 已存在 |
+| `agent-assist` | Agent 主动生成计划，写入前确认 | P3 第一版 |
+| `agent-auto` | Agent 可自动执行部分写操作 | Future，不默认实现 |
+
+**配置**：
+
+```yaml
+agent:
+  enabled: false
+  mode: "agent-assist"   # manual | agent-assist | agent-auto
+  require_confirmation: true
+  daily_brief: true
+  max_auto_actions_per_day: 0
+```
+
+**Agent 可执行的只读任务**：
+
+1. **Daily Brief**：读取 due reviews、weak areas、retention，生成今日学习安排。
+2. **Pre-interview Plan**：根据目标领域和剩余天数生成冲刺计划。
+3. **Maintenance Check**：发现统计过期、草稿堆积、孤儿链接、标签不规范。
+4. **Learning Path**：基于薄弱概念和依赖关系推荐学习顺序。
+
+**Agent 写入前必须确认的任务**：
+
+| 动作 | 影响文件 | 确认要求 |
+|------|---------|---------|
+| 记录复习结果 | `.progress/schedule.json`, `.progress/stats.json` | 必须确认 |
+| 生成日报/周报 | `04-Sessions/report-*.md` | 必须确认 |
+| 调整复习日期 | `.progress/schedule.json` | 必须确认 |
+| 标记掌握/薄弱 | `.progress/schedule.json`, Notes frontmatter | 必须确认 |
+
+**Agent 到 Skill 的交接格式**：
+
+Agent 不直接执行完整 Skill 流程，而是输出可被用户确认的下一步：
+
+```markdown
+## 今日建议
+
+1. 使用 review Skill，以 DEEP 模式复习 5 道到期题。
+   - 原因：今日到期且平均正确率低于 60%
+   - 建议命令：`复习 5 题，DEEP 模式`
+
+2. 使用 learn Skill 学习 [[CAS 原理]]。
+   - 原因：它是 JVM 并发相关薄弱点的前置概念
+   - 建议命令：`学习 CAS 原理`
+```
+
+#### 8.5.7 写操作审计
+
+所有 Agent 或 MCP 写工具必须追加 JSONL 审计记录：
+
+文件：`InterviewVault/.progress/agent_actions.jsonl`
+
+```json
+{
+  "timestamp": "2026-06-09T10:00:00",
+  "actor": "agent-assist",
+  "action": "record_review_result",
+  "target": "java-jvm-gc-q01",
+  "confirmed": true,
+  "before": {
+    "status": "learning",
+    "interval": 3,
+    "next_review": "2026-06-09"
+  },
+  "after": {
+    "status": "learning",
+    "interval": 7,
+    "next_review": "2026-06-16"
+  }
+}
+```
+
+**审计规则**：
+
+- JSONL 每行一条记录。
+- 审计写入失败时，主写操作必须失败并回滚。
+- 审计记录不保存完整用户回答，只保存摘要，避免敏感内容长期滞留。
+
+#### 8.5.8 P3 测试方案
+
+**MCP Smoke Test**：
+
+| 测试 | 预期 |
+|------|------|
+| Server 启动 | stdio server 可启动，无异常 |
+| Tools list | 返回 5 个工具 |
+| Resources list | 返回 4 类资源 |
+| `query_knowledge` | 能查询现有测试概念 |
+| CWD 越界 | 传入 CWD 外路径时拒绝 |
+
+**MCP Contract Test**：
+
+- 每个 Tool 的 input schema 稳定。
+- 缺少必填参数时返回可操作错误。
+- 输出 JSON 包含固定顶层字段。
+- 只读工具不修改任何 Vault 文件。
+
+**Agent Dry-run Test**：
+
+1. 输入 `days=1, intensity=normal`。
+2. 生成每日计划。
+3. 校验 `.progress/schedule.json`、`.progress/stats.json` 未发生变化。
+4. 输出包含 `writes_required=false`。
+
+**Agent Confirmed-write E2E**：
+
+1. 调用 `record_review_result(question_id, score, mode, confirmed=false)`。
+2. 校验只返回 dry-run，不写文件。
+3. 调用 `record_review_result(..., confirmed=true)`。
+4. 校验 schedule/stats 更新。
+5. 校验 `agent_actions.jsonl` 新增一条审计记录。
+6. 运行 `python scripts/validate_consistency.py InterviewVault`，必须通过。
+
+**回归要求**：
+
+- P3 改动不得破坏 P0-P2 的 smoke/e2e。
+- MCP Server 只读工具不得产生文件 diff。
+- 所有写工具必须使用原子写入。
 
 ---
 

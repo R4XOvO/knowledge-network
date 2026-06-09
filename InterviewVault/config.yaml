@@ -28,6 +28,14 @@ tracking:
   # concept:    单层追踪，按概念聚合（省 token，默认）
   # sub_topic:  双层追踪，按子知识点聚合（更精准，耗 token）
 
+# Agent Assist 设置（P3，可选）
+agent:
+  enabled: false
+  mode: "agent-assist"            # manual | agent-assist | agent-auto
+  require_confirmation: true       # 写入 Vault 前是否必须确认
+  daily_brief: true                # 是否生成每日学习简报
+  max_auto_actions_per_day: 0      # P3 第一版保持 0，不启用自动写入
+
 # 路径配置（高级）
 paths:
   vault_root: "./InterviewVault"
